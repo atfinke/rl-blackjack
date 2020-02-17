@@ -54,7 +54,7 @@ class Blackjack:
     def calculate_reward(self):
         if self.player.is_busted():
             self.print_if_enabled('player busted')
-            return - 1
+            return -1
 
         self.dealer_finish()
         if self.player.has_blackjack() and self.dealer.has_blackjack():
@@ -84,8 +84,8 @@ class Blackjack:
             return - 1
 
     def dealer_finish(self):
-        self.print_if_enabled("\ndealer's turn...")
-        self.print_if_enabled(self.dealer.rep_hand())
+        # self.print_if_enabled("\ndealer's turn...")
+        # self.print_if_enabled(self.dealer.rep_hand())
         while self._can_hit(self.dealer) and (max(self.dealer.hand_values()) < 17 or (max(self.dealer.hand_values()) > 21 and min(self.dealer.hand_values()) < 17)):
             player_value = max(filter(lambda x: x <= 21, self.player.hand_values()))
             dealer_value = max(filter(lambda x: x <= 21, self.dealer.hand_values()))
@@ -93,7 +93,7 @@ class Blackjack:
                 break
             card = self.deck.draw()
             self.dealer.add_card(card)
-            self.print_if_enabled(self.dealer.rep_hand())
+            # self.print_if_enabled(self.dealer.rep_hand())
 
     def _can_hit(self, player):
         if 21 in player.hand_values():
