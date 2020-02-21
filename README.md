@@ -4,7 +4,9 @@ Curious if I can create a reinforcement learning gym env for blackjack. Goal is 
 
 ### results after poking things for a bit
 
-I definitely have some fundamental fitting errors in a few places due to the handling of Aces (1,11). Still pretty fun to mess around with rl.
+I definitely have some fundamental fitting logic errors in a few places due to the handling of Aces (1,11). Still pretty fun to mess around with rl.
+
+(Update: Results now outdated)
 
 fitting with rounds: 10,000,000
 | Player Hand | Dealer First Card | Hit | Stay |
@@ -219,6 +221,8 @@ fitting with rounds: 10,000,000
 | 20 | 10 | -0.404 | 2.3970 |
 | 20 | 11 | 0.0000 | 0.0000 |
 
+```
 predict 100,000 results
 wins: 33161 (33.16%)
 losses: 59347 (59.35%)
+```
