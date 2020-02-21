@@ -2,6 +2,9 @@ import gym
 import sys
 import numpy as np
 import random
+import itertools
+from source.deck import Deck
+from source.card import Card
 
 from timeit import default_timer as timer
 from source import BlackjackEnv
@@ -21,11 +24,45 @@ state = env.reset()
 
 
 def player_hand_values_from_state(state):
-    return sorted(list(state[0]))
+    return frozenset(state[0])
 
 
 def dealer_hand_values_from_state(state):
-    return sorted(list(state[1]))
+    return frozenset(state[1])
+
+
+# def all_reasonable_possible_frozensets():
+#     deck = Deck()
+#     deck._remove_aces()
+#     cards = deck.cards
+
+#     sets = []
+#     # 1 + 1 + 1 + 1 + 2 + 2 + 2 + 2 + 3 + 3 + 3
+#     for combination in itertools.combinations(cards, 11):
+#         value = 4 + sum(list(map(lambda x: list(x.ranks)[0], combination)))
+#         if value > 21:
+#             continue
+
+#         for heart_ace in range(1):
+#             for diamond_ace in range(1):
+#                 for spade_ace in range(1):
+#                     for clubs_ace in range(1):
+#                         hand = []
+#                         if heart_ace:
+#                             hand.append(Card(suit="hearts", rank="A"))
+#                         if diamond_ace:
+#                             hand.append(Card(suit="diamonds", rank="A"))
+#                         if spade_ace:
+#                             hand.append(Card(suit="spades", rank="A"))
+#                         if clubs_ace:
+#                             hand.append(Card(suit="clubs", rank="A"))
+#                         for card in combination:
+#                             hand.append(card)
+#                         sets.append(frozenset(hand))
+#     print(1)
+
+
+# all_possible_frozensets()
 
 
 def str_for_action(action):
@@ -37,27 +74,35 @@ def str_for_action(action):
         raise ValueError()
 
 
+def _show_progress(progress, remaining_time):
+    min_str = str(int(remaining_time / 60))
+    sec_str = str(int(remaining_time % 60))
+    per_str = str(round(progress, 1))
+    print('ETA: {}:{} ({}%)'.format(min_str.rjust(2, '0'), sec_str.rjust(2, '0'), per_str.ljust(4, '0')))
+
+
 def fit(env, steps=1_000):
     print('fitting with steps: ' + str(steps))
     num_of_available_states = env.observation_space.n
     num_of_available_actions = env.action_space.n
 
-    q = np.zeros((num_of_available_states, num_of_available_states, num_of_available_actions))
-    n = np.zeros((num_of_available_states, num_of_available_states, num_of_available_actions))
+    q = {}  # np.zeros((num_of_available_states, num_of_available_states, num_of_available_actions))
+    n = {}  # np.zeros((num_of_available_states, num_of_available_states, num_of_available_actions))
 
     state = env.reset()
     rewards = np.zeros(steps)
 
     epsilon = 0.2
-    discount = 0.95
+    discount = 0.9
 
     last_timer = None
-    update_interval = 20_000
-
+    update_interval = 10_000
     diffs = np.zeros(5)
     diff_index = -1
 
     for i in range(steps):
+
+        # Progress Updates
         if i % update_interval == 0:
             diff_index += 1
             if diff_index >= diffs.shape[0]:
@@ -70,31 +115,28 @@ def fit(env, steps=1_000):
                     diffs.fill(diffs[diff_index])
 
             diff = np.mean(diffs)
-            remaining_time = ((steps - i) / update_interval) * diff
-            min_str = str(int(remaining_time / 60))
-            sec_str = str(int(remaining_time % 60))
-            per_str = str(round(i / steps * 100, 1))
             last_timer = new
 
-            print('ETA: {}:{} ({}%)'.format(min_str.rjust(2, '0'), sec_str.rjust(2, '0'), per_str.ljust(4, '0')))
+            _show_progress(progress=i / steps * 100, remaining_time=((steps - i) / update_interval) * diff)
 
-        if env.is_inital_deal_blackjack():
-            state = env.reset()
-            continue
+        # if env.is_inital_deal_blackjack():
+        #     state = env.reset()
+        #     continue
 
         random = np.random.random(1)[0]
 
         action = None
         if random > epsilon:
-            first_player_hand_value = random.choice(player_hand_values_from_state(state))
-            first_dealer_hand_value = dealer_hand_values_from_state(state)[0]
-
-            # Hmm, need to figure out how to account for the other value (with ace)
-            hmmm = q[first_player_hand_value][first_dealer_hand_value]
-            action = np.argmax(hmmm)
-            if action == 0 and np.unique(hmmm).size == 1:
+            inital_player_hand_values = player_hand_values_from_state(state)
+            inital_dealer_hand_values = dealer_hand_values_from_state(state)
+            q_for_player = q.get(inital_player_hand_values, {})
+            q_for_player_and_dealer = q_for_player.get(inital_dealer_hand_values, np.zeros(num_of_available_actions))
+            action = np.argmax(q_for_player_and_dealer)
+            if action == 0 and np.unique(q_for_player_and_dealer).size == 1:
                 action = env.action_space.sample()
         else:
+            inital_player_hand_values = player_hand_values_from_state(state)
+            inital_dealer_hand_values = dealer_hand_values_from_state(state)
             action = env.action_space.sample()
 
         # print("action: " + str_for_action(action))
@@ -102,36 +144,42 @@ def fit(env, steps=1_000):
         rewards[i] = reward
         # env.render()
 
-        player_hand_values = player_hand_values_from_state(state)
-        first_dealer_hand_value = dealer_hand_values_from_state(state)[0]
+        existing_n_arr = n.get(inital_player_hand_values, {})
+        existing_n_arr_and_dealer = existing_n_arr.get(inital_dealer_hand_values, np.zeros(num_of_available_actions))
+        new_n = np.add(existing_n_arr_and_dealer[action], 1)
+        existing_n_arr_and_dealer[action] = new_n
+        existing_n_arr[inital_dealer_hand_values] = existing_n_arr_and_dealer
+        n[inital_player_hand_values] = existing_n_arr
 
-        for hand_state in player_hand_values:
-            if hand_state > 21:
-                continue
+        alpha = np.divide(1, new_n)
 
-            new_n = np.add(n[hand_state][first_dealer_hand_value][action], 1)
-            n[hand_state][first_dealer_hand_value][action] = new_n
-            alpha = np.divide(1, new_n)
+        new_player_hand_values = player_hand_values_from_state(new_state)
+        # Does this matter? Same as inital, should it be final dealer hand?
+        new_dealer_hand_values = dealer_hand_values_from_state(new_state)
 
-            new_player_hand_values = player_hand_values_from_state(new_state)
-            new_first_dealer_hand_values = dealer_hand_values_from_state(new_state)
-            for new_player_hand_state in new_player_hand_values:
-                for new_dealer_hand_state in new_first_dealer_hand_values:
-                    if new_player_hand_state > 21 or new_dealer_hand_state > 21:
-                        # Not sure if this is correct for q learning to just dump the result...
-                        continue
-                    else:
-                        new_state_max_index = np.argmax(q[new_player_hand_state][new_dealer_hand_state])
-                        first_term = q[new_player_hand_state][new_dealer_hand_state][new_state_max_index]
-                        first_term = np.multiply(discount, first_term)
+        # Discount * max(Q(S', a))
+        q_for_new_player = q.get(new_player_hand_values, {})
+        q_for_new_player_and_dealer = q_for_new_player.get(new_dealer_hand_values, np.zeros(num_of_available_actions))
+        new_state_max_index = np.argmax(q_for_new_player_and_dealer)
 
-                    second_term = q[hand_state][first_dealer_hand_value][action]
-                    combined_terms = np.subtract(first_term, second_term)
-                    combined_terms_with_reward = np.add(reward, combined_terms)
+        first_term = q_for_new_player_and_dealer[new_state_max_index]
+        first_term = np.multiply(discount, first_term)
 
-                    alpha_and_terms = np.multiply(alpha, combined_terms_with_reward)
+        # Q(S, A)
+        q_for_player = q.get(inital_player_hand_values, {})
+        q_for_player_and_dealer = q_for_player.get(inital_dealer_hand_values, np.zeros(num_of_available_actions))
+        second_term = q_for_player_and_dealer[action]
 
-                    q[hand_state][first_dealer_hand_value][action] += alpha_and_terms
+        # R + Discount * max(Q(S', a))] - Q(S, A)
+        combined_terms = np.subtract(first_term, second_term)
+        combined_terms_with_reward = np.add(reward, combined_terms)
+
+        alpha_and_terms = np.multiply(alpha, combined_terms_with_reward)
+
+        q_for_player_and_dealer[action] += alpha_and_terms
+        q_for_player[inital_dealer_hand_values] = q_for_player_and_dealer
+
+        q[inital_player_hand_values] = q_for_player
 
         state = new_state
         if done:
@@ -141,12 +189,16 @@ def fit(env, steps=1_000):
 
 
 def predict(env, state_action_values):
-    state = env.reset()
 
-    first_player_hand_value = player_hand_values_from_state(state)[0]
-    first_dealer_hand_value = dealer_hand_values_from_state(state)[0]
+    player_hand_values = None
+    dealer_hand_value = None
 
-    actions_for_state = state_action_values[first_player_hand_value][first_dealer_hand_value]
+    while player_hand_values not in state_action_values or dealer_hand_value not in state_action_values[player_hand_values]:
+        state = env.reset()
+        player_hand_values = player_hand_values_from_state(state)
+        dealer_hand_value = dealer_hand_values_from_state(state)
+
+    actions_for_state = state_action_values[player_hand_values][dealer_hand_value]
     done = False
 
     number_of_steps = 0
@@ -166,16 +218,22 @@ def predict(env, state_action_values):
         # print('performing action: ' + str_for_action(action))
 
         state, reward, done, _ = env.step(action)
-
-        first_player_hand_value = player_hand_values_from_state(state)[0]
-        first_dealer_hand_value = dealer_hand_values_from_state(state)[0]
-
-        if not done:
-            actions_for_state = state_action_values[first_player_hand_value][first_dealer_hand_value]
-
         states.append(state)
         actions.append(action)
         rewards.append(reward)
+
+        inital_player_hand_values = player_hand_values_from_state(state)
+        inital_dealer_hand_values = dealer_hand_values_from_state(state)
+
+        if not done:
+            if inital_player_hand_values not in state_action_values or inital_dealer_hand_values not in state_action_values[inital_player_hand_values]:
+                while inital_player_hand_values not in state_action_values or inital_dealer_hand_values not in state_action_values[inital_player_hand_values]:
+                    state = env.reset()
+                    inital_player_hand_values = player_hand_values_from_state(state)
+                    inital_dealer_hand_values = dealer_hand_values_from_state(state)
+                actions_for_state = state_action_values[inital_player_hand_values][inital_dealer_hand_values]
+
+            actions_for_state = state_action_values[inital_player_hand_values][inital_dealer_hand_values]
 
         number_of_steps += 1
 
@@ -183,16 +241,43 @@ def predict(env, state_action_values):
     return np.array(states), np.array(actions), np.array(rewards)
 
 
-fit_steps = 500_000
+fit_steps = 10_000_000
 q = fit(env, fit_steps)
 print('done fitting')
 
-for player_start in range(1, 22):
+print('fit, no player aces, dealer ace = 1 or 11:')
+for player_start in range(4, 22):
     for dealer_start in range(1, 12):
-        values = q[player_start][dealer_start]
-        hit = str(round(values[0], 3)).ljust(6, '0')
-        stay = str(round(values[1], 3)).ljust(6, '0')
+        p = frozenset(set([player_start]))
+        d = frozenset(set([dealer_start]))
+        if dealer_start == 1 or dealer_start == 11:
+            d = frozenset([1, 11])
+
+        if p in q and d in q[p]:
+            values = q[p][d]
+            hit = str(round(values[0], 3)).ljust(6, '0')
+            stay = str(round(values[1], 3)).ljust(6, '0')
+        else:
+            hit = "-"
+            stay = "-"
         print('{} / {}: [{}, {}]'.format(str(player_start).rjust(2, ' '), str(dealer_start).rjust(2, ' '), hit, stay))
+
+print('fit, one player ace, dealer ace = 1 or 11:')
+for player_start in range(2, 21):
+    for dealer_start in range(1, 12):
+        p = frozenset(set([player_start + 1, player_start + 11]))
+        d = frozenset(set([dealer_start]))
+        if dealer_start == 1 or dealer_start == 11:
+            d = frozenset([1, 11])
+
+        if p in q and d in q[p]:
+            values = q[p][d]
+            hit = str(round(values[0], 3)).ljust(6, '0')
+            stay = str(round(values[1], 3)).ljust(6, '0')
+        else:
+            hit = "-"
+            stay = "-"
+        print('{} / {}: [{}, {}]'.format(str([player_start + 1, player_start + 11]).rjust(8, ' '), str(dealer_start).rjust(2, ' '), hit, stay))
 
 predict_steps = 100_000
 wins = 0
