@@ -45,7 +45,7 @@ class Blackjack:
         if self.is_player_turn_over:
             return self.calculate_reward()
         else:
-            return 0.0001
+            return 0
 
     def player_done(self):
         self.is_player_turn_over = True
@@ -96,9 +96,7 @@ class Blackjack:
             # self.print_if_enabled(self.dealer.rep_hand())
 
     def _can_hit(self, player):
-        if 21 in player.hand_values():
-            return False
-        elif min(player.hand_values()) > 21:
+        if min(player.hand_values()) > 21:
             return False
         else:
             return True
