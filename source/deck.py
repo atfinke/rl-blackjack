@@ -21,6 +21,9 @@ class Deck:
         self.cards = self.cards[1:]
         return card
 
+    def _remove_aces(self):
+        self.cards = filter(lambda card: card.str_rank != "A", self.cards)
+
 
 if __name__ == '__main__':
     deck = Deck()
