@@ -3,18 +3,13 @@ import sys
 import numpy as np
 import random
 import itertools
+import pickle
 from source.deck import Deck
 from source.card import Card
 
 from timeit import default_timer as timer
 from source import BlackjackEnv
-
-try:
-    import matplotlib.pyplot as plt
-except:
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+from results import plot_no_player_aces, print_no_player_aces
 
 
 sys.path.insert(1, './')
@@ -81,7 +76,7 @@ def _show_progress(progress, remaining_time):
     print('ETA: {}:{} ({}%)'.format(min_str.rjust(2, '0'), sec_str.rjust(2, '0'), per_str.ljust(4, '0')))
 
 
-def fit(env, steps=1_000):
+def fit(env, steps=1_000, update_steps=100, save=True):
     print('fitting with steps: ' + str(steps))
     num_of_available_states = env.observation_space.n
     num_of_available_actions = env.action_space.n
@@ -96,7 +91,7 @@ def fit(env, steps=1_000):
     discount = 0.9
 
     last_timer = None
-    update_interval = 10_000
+    update_interval = update_steps
     diffs = np.zeros(5)
     diff_index = -1
 
@@ -185,6 +180,9 @@ def fit(env, steps=1_000):
         if done:
             state = env.reset()
 
+    if save:
+        pickle.dump(q, open('q-{}.pkl'.format(steps), 'wb'))
+    print('done fitting')
     return q
 
 
@@ -241,55 +239,32 @@ def predict(env, state_action_values):
     return np.array(states), np.array(actions), np.array(rewards)
 
 
-fit_steps = 10_000_000
-q = fit(env, fit_steps)
-print('done fitting')
+def test_prediction(q, steps=1_000):
+    wins = 0
+    losses = 0
+    for _ in range(steps):
+        result = predict(env, q)
+        wins += np.count_nonzero(result[2] >= 1)
+        losses += np.count_nonzero(result[2] == -1)
 
-print('fit, no player aces, dealer ace = 1 or 11:')
-for player_start in range(4, 22):
-    for dealer_start in range(1, 12):
-        p = frozenset(set([player_start]))
-        d = frozenset(set([dealer_start]))
-        if dealer_start == 1 or dealer_start == 11:
-            d = frozenset([1, 11])
+    print('predict {} results'.format(steps))
+    print('wins:   {} ({}%)'.format(str(wins).rjust(len(str(steps))), str(round(wins / steps * 100, 2)).ljust(5, '0')))
+    print('losses: {} ({}%)'.format(str(losses).rjust(len(str(steps))), str(round(losses / steps * 100, 2)).ljust(5, '0')))
 
-        if p in q and d in q[p]:
-            values = q[p][d]
-            hit = str(round(values[0], 3)).ljust(6, '0')
-            stay = str(round(values[1], 3)).ljust(6, '0')
-        else:
-            hit = "-"
-            stay = "-"
-        print('{} / {}: [{}, {}]'.format(str(player_start).rjust(2, ' '), str(dealer_start).rjust(2, ' '), hit, stay))
 
-print('fit, one player ace, dealer ace = 1 or 11:')
-for player_start in range(2, 21):
-    for dealer_start in range(1, 12):
-        p = frozenset(set([player_start + 1, player_start + 11]))
-        d = frozenset(set([dealer_start]))
-        if dealer_start == 1 or dealer_start == 11:
-            d = frozenset([1, 11])
+def print_and_plot_existing_q_pickle(file_name):
+    existing_q = pickle.load(open(file_name, "rb"))
+    print_no_player_aces(existing_q)
+    plot_no_player_aces(existing_q)
 
-        if p in q and d in q[p]:
-            values = q[p][d]
-            hit = str(round(values[0], 3)).ljust(6, '0')
-            stay = str(round(values[1], 3)).ljust(6, '0')
-        else:
-            hit = "-"
-            stay = "-"
-        print('{} / {}: [{}, {}]'.format(str([player_start + 1, player_start + 11]).rjust(8, ' '), str(dealer_start).rjust(2, ' '), hit, stay))
 
+fit_steps = 100_000_000
+update_steps = 50_000
 predict_steps = 100_000
-wins = 0
-losses = 0
-for _ in range(predict_steps):
-    result = predict(env, q)
-    wins += np.count_nonzero(result[2] >= 1)
-    losses += np.count_nonzero(result[2] == -1)
 
-
-print('predict {} results'.format(predict_steps))
-print('wins:   {} ({}%)'.format(str(wins).rjust(len(str(predict_steps))), str(round(wins / predict_steps * 100, 2)).ljust(5, '0')))
-print('losses: {} ({}%)'.format(str(losses).rjust(len(str(predict_steps))), str(round(losses / predict_steps * 100, 2)).ljust(5, '0')))
+q = fit(env=env, steps=fit_steps, update_steps=update_steps)
+test_prediction(q=q, steps=predict_steps)
 
 env.close()
+
+# print_and_plot_existing_q_pickle(file_name='q-100000000.pkl')
